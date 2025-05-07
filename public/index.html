@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local GitHub Browser</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>GitHub Repository Explorer</h1>
+            <p>Browse your repositories and select files to generate a combined text output.</p>
+        </header>
+
+        <section class="repo-selection-section card">
+            <h2>1. Select Repository</h2>
+            <button id="loadMyReposButton">Load My Repositories</button>
+            <ul id="repoList" class="item-list"></ul>
+        </section>
+
+        <section id="fileTreeViewSection" class="card" style="display:none;">
+            <h2 id="selectedRepoName">Repository Files</h2>
+            <p>Select files to include in the combined text output:</p>
+            <div class="tree-controls" style="margin-bottom: 10px;">
+                <button id="selectAllInTreeButton">Select All Files in Tree</button>
+                <button id="deselectAllInTreeButton">Deselect All Files in Tree</button>
+            </div>
+            <div id="fileTree" class="file-tree-container">
+                <!-- File tree will be rendered here by JavaScript -->
+            </div>
+            <button id="generateCombinedTextButton" style="margin-top:15px;">Generate Combined Text</button>
+        </section>
+
+        <section id="combinedOutputSection" class="card" style="display:none;">
+            <h2>2. Combined Text Output</h2>
+            <p>This text is formatted for understanding the structure and content of the selected files.</p>
+            <textarea id="combinedOutputTextarea" rows="25" readonly></textarea>
+            <button id="copyCombinedTextButton" style="margin-top:10px;">Copy All Text</button>
+        </section>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
