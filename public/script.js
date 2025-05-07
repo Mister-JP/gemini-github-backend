@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileTreeDiv = document.getElementById('fileTree');
     const generateCombinedTextButton = document.getElementById('generateCombinedTextButton');
 
-    // New buttons for select/deselect all
     const selectAllInTreeButton = document.getElementById('selectAllInTreeButton');
     const deselectAllInTreeButton = document.getElementById('deselectAllInTreeButton');
 
@@ -20,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- State Variables ---
     let currentSelectedRepo = { owner: null, name: null }; // Stores the currently selected repository's owner and name
-    let selectedFilePathsForOutput = new Set(); // Stores the paths of files selected by the user
+    let selectedFilePathsForOutput = new Set(); // Stores the paths of files selected by the user for the combined output
 
     // --- 1. Load Repositories ---
     if (loadReposButton) {
@@ -31,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const response = await fetch('/api/github/repos');
                 if (!response.ok) {
-                    const errData = await response.json().catch(() => ({})); // Try to parse JSON error, fallback to empty object
+                    const errData = await response.json().catch(() => ({}));
                     throw new Error(`Backend Error (${response.status}): ${errData.details || errData.error || response.statusText}`);
                 }
                 const repos = await response.json();
@@ -44,23 +43,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    /**
+     * Renders the list of repositories in the UI.
+     * @param {Array<object>} repos - Array of repository objects from the backend.
+     */
     function renderRepoList(repos) {
         repoListUl.innerHTML = ''; // Clear previous list
-        if (repos.length === 0) {
+        if (!repos || repos.length === 0) {
             repoListUl.innerHTML = '<li>No repositories found or PAT lacks permissions.</li>';
             return;
         }
         repos.forEach(repo => {
             const li = document.createElement('li');
             li.textContent = `${repo.full_name} ${repo.private ? '(Private)' : '(Public)'}`;
-            li.title = repo.description || 'No description';
+            li.title = repo.description || 'No description available';
             li.addEventListener('click', () => {
                 currentSelectedRepo.owner = repo.full_name.split('/')[0];
                 currentSelectedRepo.name = repo.name;
                 selectedRepoNameH2.textContent = `Files in: ${repo.full_name}`;
                 fileTreeViewSection.style.display = 'block';
-                combinedOutputSection.style.display = 'none';
-                selectedFilePathsForOutput.clear(); // Clear previous selections when a new repo is chosen
+                combinedOutputSection.style.display = 'none'; // Hide previous output
+                selectedFilePathsForOutput.clear(); // Clear selections from previous repo
                 fetchAndRenderFileTree(currentSelectedRepo.owner, currentSelectedRepo.name);
             });
             repoListUl.appendChild(li);
@@ -68,6 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 2. Fetch and Render File Tree ---
+    /**
+     * Fetches the complete file tree structure from the backend and initiates rendering.
+     * @param {string} owner - The owner of the repository.
+     * @param {string} repoName - The name of the repository.
+     */
     async function fetchAndRenderFileTree(owner, repoName) {
         fileTreeDiv.innerHTML = '<p>Loading file tree...</p>';
         generateCombinedTextButton.disabled = true;
@@ -75,76 +83,70 @@ document.addEventListener('DOMContentLoaded', () => {
         if (deselectAllInTreeButton) deselectAllInTreeButton.disabled = true;
 
         try {
-            // Fetch the entire tree structure recursively
-            const rootItems = await fetchDirectoryContentsRecursive(owner, repoName, '');
-            const treeRoot = { name: repoName, type: 'dir', path: '', children: rootItems }; // Create a root node for rendering
-            renderFileTreeUI(treeRoot, fileTreeDiv, true); // Render the tree
+            // Fetch the entire tree structure (server now handles recursion)
+            const response = await fetch(`/api/github/repo-contents?owner=${owner}&repo=${repoName}`);
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(`Failed to fetch repository tree: ${errData.details || response.statusText}`);
+            }
+            const treeItems = await response.json(); // This is now the nested tree structure
+
+            // Create a root node object to pass to renderFileTreeUI, similar to previous structure
+            const treeRootNode = { name: repoName, type: 'dir', path: '', children: treeItems };
+            renderFileTreeUI(treeRootNode, fileTreeDiv, true); // Render the tree
+
             generateCombinedTextButton.disabled = false;
             if (selectAllInTreeButton) selectAllInTreeButton.disabled = false;
             if (deselectAllInTreeButton) deselectAllInTreeButton.disabled = false;
         } catch (error) {
-            console.error('Error fetching repository file tree:', error);
+            console.error('Error fetching or rendering repository file tree:', error);
             fileTreeDiv.innerHTML = `<p>Error loading file tree: ${error.message}</p>`;
         }
     }
 
-    async function fetchDirectoryContentsRecursive(owner, repoName, dirPath) {
-        const response = await fetch(`/api/github/repo-contents?owner=${owner}&repo=${repoName}&path=${encodeURIComponent(dirPath)}`);
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(`Failed to fetch contents for "${dirPath || 'root'}": ${errData.details || response.statusText}`);
-        }
-        const items = await response.json();
-        const processedItems = [];
-
-        for (const item of items) {
-            const node = {
-                name: item.name,
-                path: item.path,
-                type: item.type,
-                sha: item.sha, // Useful for unique checkbox IDs
-                children: [] // Initialize children array
-            };
-            if (item.type === 'dir') {
-                // Recursively fetch contents for subdirectories
-                node.children = await fetchDirectoryContentsRecursive(owner, repoName, item.path);
-            }
-            processedItems.push(node);
-        }
-        // Sort items: directories first, then alphabetically by name
-        return processedItems.sort((a, b) => {
-            if (a.type === 'dir' && b.type !== 'dir') return -1;
-            if (a.type !== 'dir' && b.type === 'dir') return 1;
-            return a.name.localeCompare(b.name);
-        });
-    }
-
+    /**
+     * Renders the file tree UI recursively.
+     * @param {object} node - The current node in the tree to render. Expected to have `name`, `type`, `path`, and `children` (if 'dir').
+     * @param {HTMLElement} parentElement - The HTML element to append the rendered tree to.
+     * @param {boolean} [isRoot=false] - Flag to indicate if this is the root call, used for clearing the container.
+     */
     function renderFileTreeUI(node, parentElement, isRoot = false) {
         if (isRoot) {
             parentElement.innerHTML = ''; // Clear previous tree for the root call
         }
-        const ul = document.createElement('ul');
 
-        // The `node` in recursive calls will be a child node. For the root, `node.children` are the top-level items.
-        const itemsToRender = isRoot ? node.children : [node];
+        // The `node` itself is not rendered if it's the conceptual root passed in.
+        // Its children are the actual top-level items of the repository.
+        const itemsToRender = isRoot ? node.children : node.children || [];
+
+        if (isRoot && itemsToRender.length === 0) {
+            parentElement.innerHTML = '<p>This repository or directory is empty, or the tree could not be fully loaded.</p>';
+            return;
+        }
         
-        (node.children || []).forEach(childNode => { // Iterate over actual children for a directory node
+        const ul = document.createElement('ul');
+        if (isRoot) { // For root, padding might be different or already handled by parentElement
+            ul.style.paddingLeft = '0px'; 
+        }
+
+
+        itemsToRender.forEach(childNode => {
             const li = document.createElement('li');
             li.classList.add('tree-node', `tree-node-${childNode.type}`);
 
-            const label = document.createElement('label'); // Use label for better accessibility with checkbox
+            const label = document.createElement('label');
             label.classList.add('node-label');
 
             if (childNode.type === 'file') {
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
-                checkbox.dataset.filePath = childNode.path; // Store path for later retrieval
+                checkbox.dataset.filePath = childNode.path;
                 checkbox.dataset.fileName = childNode.name;
-                checkbox.id = `cb-${childNode.sha || childNode.path.replace(/[^a-zA-Z0-9]/g, '-')}`; // Unique ID for label association
-                label.htmlFor = checkbox.id; // Associate label with checkbox
+                // Use SHA or a sanitized path for unique ID. SHA is more robust if available.
+                checkbox.id = `cb-${childNode.sha || childNode.path.replace(/[^a-zA-Z0-9-_]/g, '-')}`;
+                label.htmlFor = checkbox.id;
 
-                // Restore checked state if file was previously selected
-                checkbox.checked = selectedFilePathsForOutput.has(childNode.path);
+                checkbox.checked = selectedFilePathsForOutput.has(childNode.path); // Restore selection
 
                 checkbox.addEventListener('change', (event) => {
                     if (event.target.checked) {
@@ -152,47 +154,45 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         selectedFilePathsForOutput.delete(childNode.path);
                     }
-                    // console.log('Selected files:', selectedFilePathsForOutput); // For debugging
                 });
-                label.appendChild(checkbox); // Checkbox inside label
+                label.appendChild(checkbox);
             }
             
             const nameSpan = document.createElement('span');
             nameSpan.textContent = childNode.name;
-            label.appendChild(nameSpan); // Name inside label
+            label.appendChild(nameSpan);
             
             li.appendChild(label);
 
             // If it's a directory and has children, recursively render them
             if (childNode.type === 'dir' && childNode.children && childNode.children.length > 0) {
-                renderFileTreeUI(childNode, li, false); // Pass the childNode as the new 'node' for the recursive call
+                renderFileTreeUI(childNode, li, false); // Pass the childNode, which contains its own children
             }
             ul.appendChild(li);
         });
 
-        if (ul.hasChildNodes() || isRoot) { 
+        if (ul.hasChildNodes()) { 
             parentElement.appendChild(ul);
-        }
-        
-        // Handle empty root directory case
-        if (isRoot && (!node.children || node.children.length === 0)) {
-           parentElement.innerHTML = '<p>This repository or directory is empty.</p>';
         }
     }
 
     // --- 3. Select/Deselect All Files in Tree ---
+    /**
+     * Sets the checked state for all file checkboxes currently rendered in the file tree.
+     * @param {boolean} isChecked - True to select all, false to deselect all.
+     */
     function setAllFileCheckboxesInTree(isChecked) {
         const fileCheckboxes = fileTreeDiv.querySelectorAll('input[type="checkbox"][data-file-path]');
-        if (fileCheckboxes.length === 0 && isChecked) { // Only alert if trying to select when none are available
+        if (fileCheckboxes.length === 0 && isChecked) {
             alert("No files found in the current tree view to select.");
             return;
         }
         
         fileCheckboxes.forEach(checkbox => {
+            // Only change if needed, and update the master set
             if (checkbox.checked !== isChecked) {
                 checkbox.checked = isChecked;
             }
-            // Update the master set of selected files
             const filePath = checkbox.dataset.filePath;
             if (isChecked) {
                 selectedFilePathsForOutput.add(filePath);
@@ -200,19 +200,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedFilePathsForOutput.delete(filePath);
             }
         });
-        // console.log('Selected files after all:', selectedFilePathsForOutput); // For debugging
     }
 
     if (selectAllInTreeButton) {
-        selectAllInTreeButton.addEventListener('click', () => {
-            setAllFileCheckboxesInTree(true);
-        });
+        selectAllInTreeButton.addEventListener('click', () => setAllFileCheckboxesInTree(true));
     }
 
     if (deselectAllInTreeButton) {
-        deselectAllInTreeButton.addEventListener('click', () => {
-            setAllFileCheckboxesInTree(false);
-        });
+        deselectAllInTreeButton.addEventListener('click', () => setAllFileCheckboxesInTree(false));
     }
 
     // --- 4. Generate and Copy Combined Text ---
@@ -225,25 +220,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
             combinedOutputSection.style.display = 'block';
             combinedOutputTextarea.value = "Generating combined text...\nFetching file contents...\n\n";
-            generateCombinedTextButton.disabled = true;
+            generateCombinedTextButton.disabled = true; // Disable button during generation
             if (copyCombinedTextButton) copyCombinedTextButton.disabled = true;
 
             let combinedText = `Repository: ${currentSelectedRepo.owner}/${currentSelectedRepo.name}\n\n`;
             combinedText += `Selected files for inclusion (${selectedFilePathsForOutput.size} total):\n`;
-            selectedFilePathsForOutput.forEach(path => {
+            // Create a sorted array from the Set for ordered display
+            const sortedFilePaths = Array.from(selectedFilePathsForOutput).sort();
+            sortedFilePaths.forEach(path => {
                 combinedText += `- ${path}\n`;
             });
             combinedText += "\n---\n\n";
 
             let filesProcessedCount = 0;
-            for (const filePath of selectedFilePathsForOutput) {
+            // Iterate over the sorted array for fetching
+            for (const filePath of sortedFilePaths) {
                 filesProcessedCount++;
-                combinedOutputTextarea.value += `Fetching (${filesProcessedCount}/${selectedFilePathsForOutput.size}): ${filePath}...\n`;
+                const progressMessage = `Fetching (${filesProcessedCount}/${selectedFilePathsForOutput.size}): ${filePath}...\n`;
+                combinedOutputTextarea.value += progressMessage;
+
                 try {
                     const response = await fetch(`/api/github/file-raw?owner=${currentSelectedRepo.owner}&repo=${currentSelectedRepo.name}&path=${encodeURIComponent(filePath)}`);
                     if (!response.ok) {
                         const errorText = await response.text().catch(() => "Could not read error details from server.");
-                        combinedText += `Error fetching file: ${filePath}\nStatus: ${response.status}\n${errorText}\n\n`;
+                        combinedText += `Error fetching file: ${filePath}\nStatus: ${response.status}\nDetails: ${errorText}\n\n`;
                         combinedOutputTextarea.value += `Error fetching ${filePath}!\n`;
                         continue; // Skip to next file
                     }
@@ -260,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             combinedOutputTextarea.value = combinedText.trim(); // Set the final combined text
-            generateCombinedTextButton.disabled = false;
+            generateCombinedTextButton.disabled = false; // Re-enable button
             if (copyCombinedTextButton) copyCombinedTextButton.disabled = false;
             alert("Combined text generated!");
         });
@@ -281,17 +281,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                     .catch(err => {
                         console.error('Failed to copy text using navigator.clipboard: ', err);
-                        // Fallback for older browsers or if clipboard API fails
-                        legacyCopyText();
+                        legacyCopyText(); // Fallback for older browsers or if API fails
                     });
             } catch (err) {
-                console.error('Error in copy operation (navigator.clipboard not supported?): ', err);
+                console.error('Error in copy operation (navigator.clipboard likely not supported): ', err);
                 legacyCopyText();
             }
-            window.getSelection().removeAllRanges(); // Deselect text after trying to copy
+            // Deselect text after attempting to copy to avoid user confusion
+            window.getSelection()?.removeAllRanges();
         });
     }
 
+    /**
+     * Fallback method to copy text using the deprecated document.execCommand.
+     */
     function legacyCopyText() {
         try {
             const successful = document.execCommand('copy');
@@ -299,10 +302,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Combined text copied to clipboard! (using fallback)');
             } else {
                 alert('Fallback copy failed. Please copy manually.');
+                console.warn('document.execCommand("copy") was unsuccessful.');
             }
         } catch (err) {
-            console.error('Fallback copy method failed: ', err);
-            alert('Failed to copy text. Please copy manually.');
+            console.error('Fallback copy method (document.execCommand) failed:', err);
+            alert('Failed to copy text automatically. Please copy manually.');
         }
     }
 
