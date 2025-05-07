@@ -160,12 +160,12 @@ The backend server exposes the following API endpoints, which are consumed by th
     *   Response: JSON array of simplified repository objects.
 
 *   `GET /api/github/repo-contents`
-    *   Description: Fetches the entire hierarchical file tree structure for the specified repository. The server now handles recursive fetching and tree construction for improved efficiency.
+    *   Description: Fetches the contents of a directory or metadata for a single file within a repository.
     *   Query Parameters:
         *   `owner` (string, required): The owner of the repository.
         *   `repo` (string, required): The name of the repository.
-    *   Response: JSON array representing the root items of the repository's file tree. Each item an object with `name`, `path`, `type` ('file' or 'dir'), `sha`, and a `children` array for directories.
-    *   Note: If GitHub reports that the tree data was truncated (for extremely large repositories), some files or directories might be missing.
+        *   `path` (string, optional): The path to the directory or file. Defaults to the root.
+    *   Response: JSON array of items (files/directories) or a single item object.
 
 *   `GET /api/github/file-raw`
     *   Description: Fetches the raw text content of a specific file.
