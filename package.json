@@ -1,0 +1,27 @@
+{
+  "name": "gemini-github-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mister-JP/gemini-github-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Mister-JP/gemini-github-backend/issues"
+  },
+  "homepage": "https://github.com/Mister-JP/gemini-github-backend#readme",
+  "description": "",
+  "dependencies": {
+    "@octokit/rest": "^21.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0"
+  }
+}
